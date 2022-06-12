@@ -9,14 +9,14 @@ import QueryBuilderIcon from '@mui/icons-material/QueryBuilder';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 
-import { PredefinedErrorBoundary, useContext, useCurrentUser } from 'lumapps-sdk-js';
+import { PredefinedErrorBoundary } from 'lumapps-sdk-js';
 
 import moment from 'moment';
 
 import { Theme } from '@lumx/react';
 
-import axios from "axios";
-import type { Task } from "./types";
+import { getTodoListsFromGraph, getTodoElementsFromGraph } from './ms_graph';
+import type { Task, TodoList } from "./types";
 
 type Widget = import('lumapps-sdk-js').ContentComponent<
     import('./types').SampleAppGlobalParams,
@@ -50,7 +50,6 @@ function TaskRender(props:any) {
         display: "flex",
         p: 1,
         width: "100%",
-        //border: `solid 2px grey`,
         borderRadius:"5px",
         color: { colorCompleted },
         backgroundColor: backgroundColorCompleted,
@@ -107,34 +106,42 @@ function NoTask() {
 }
 
 const Widget: Widget = ({ value = {}, globalValue = {}, theme = Theme.light }) => {
-  const [ cursor, setCursor ] = useState<string>("");
-  const [ tasks, setTasks ] = useState<Task[]>();
-  const { token } = useCurrentUser();
-  const { baseUrl } = useContext();
-  
-  async function getTaskList() {
-    var { data } = await axios.post(
-      `${baseUrl}/_ah/api/lumsites/v1/task/list/userTasks`, {
-        provider: "outlook",
-        fields: "taskUrl,title,description,id,status,dueDateTime,completedDateTime,importance,reminder,",
-      },
-       {
-        headers: { 'Authorization': `Bearer ${token}` },
-        params: { "cursor": cursor}
-      }
-    );
-    if (data?.items) {
-      data = data.items;
+  const [ cursorList, setCursorList ] = useState<string>("");
+  const [ cursorTasks, setCursorTasks ] = useState<string>("");
+  const [ taskLists, setTaskLists ] = useState<TodoList[]>([]);
+  const [ tasks, setTasks ] = useState<Task[]>([]);
+  const [ taskList, setTaskList ] = useState<TodoList|undefined>();
+
+  async function getTodoLists() {
+    var ret = await getTodoListsFromGraph({cursorList});
+    setTaskLists(ret.value);
+    if (ret['@odata.nextLink']) {
+      setCursorList(ret['@odata.nextLink']);
     } else {
-      data = [];
+      setCursorList("");
     }
-    setTasks(data);
-    setCursor(cursor);
+    if (!taskList && ret.value.length > 0) {
+      setTaskList(ret.value[0])
+    } 
+  }
+
+  async function getTodoTasks() {
+    var ret = await getTodoElementsFromGraph({cursorTasks, taskList});
+    setTasks(ret.value);
+    if (ret['@odata.nextLink']) {
+      setCursorTasks(ret['@odata.nextLink']);
+    } else {
+      setCursorTasks("");
+    }
   }
 
   useEffect(() => {
-    getTaskList();
+    getTodoLists();
   }, []);
+
+  useEffect(() => {
+    getTodoTasks();
+  }, [taskList]);
 
   return (
     <div style={{ minWidth:"400px" }}>
@@ -157,7 +164,7 @@ const Widget: Widget = ({ value = {}, globalValue = {}, theme = Theme.light }) =
                   title={element.title}
                   description={element.description}
                   importance={element.importance}
-                  reminder={element.reminder}
+                  reminder={element.isReminderOn}
                   status={element.status}
                   dueDateTime={element.dueDateTime}
                 />
